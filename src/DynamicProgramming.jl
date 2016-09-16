@@ -5,16 +5,27 @@ using Interpolations
 export dp_loop, dp_rollout 
 
 # index into a grid defined by a tuple of FloatRange
-function index_into(grid::Tuple, index::CartesianIndex)
-    return convert(Array{Float64, 1}, [grid[j][k] for (j, k) in enumerate(index.I)])
+function index_into(grid::Tuple, grid_size::Tuple, index::Int64)
+    return convert(Array{Float64, 1}, [grid[j][k] for (j, k) in enumerate(ind2sub(grid_size, index))])
+end
+
+# compute grid size as a tuple = (size x1, size x2, ..., size xn) 
+#             as well as an int = size x1 * size x2 * ... * size xn
+function grid_size(grid::Tuple)
+    tuple = ([length(l) for l in grid]...)
+    int = 1
+    for t in tuple
+        int *= t
+    end
+    return tuple, int
 end
 
 # compute the optimal value function at x 
 function step(k::Int64, x::Array{Float64, 1}, ugrid::Tuple, theta::Array{Float64, 1}, V, f::Function, g::Function)
     J_star = -Inf
-    ugrid_length_tuple = ([length(l) for l in ugrid]...)
-    for i in CartesianRange(ugrid_length_tuple)
-        u = index_into(ugrid, i)
+    ugrid_length_tuple, ugrid_length_total = grid_size(ugrid)
+    for i=1:ugrid_length_total
+        u = index_into(ugrid, ugrid_length_tuple, i)
         J_u = g(x, u, theta) + V[f(k, x, u, theta)...]
         if J_u > J_star
             J_star = J_u
@@ -23,16 +34,20 @@ function step(k::Int64, x::Array{Float64, 1}, ugrid::Tuple, theta::Array{Float64
     return J_star
 end
 
-# compute optimal value function with dynamic programming algorithm using a non-parallel loop 
+# compute optimal value function with dynamic programming algorithm using a parallel loop 
 function dp_loop(f::Function, phi::Function, ugrid::Tuple, xgrid::Tuple,
             theta0::Array{Float64, 1}, N::Int64)   
-    xgrid_length_tuple = ([length(l) for l in xgrid]...)
+    xgrid_length_tuple, xgrid_length_total = grid_size(xgrid)
+    println("====== Constructing array J ======")
+    println("J is size ", xgrid_length_tuple, " by ", N)
     J = SharedArray(Float64, xgrid_length_tuple..., N)
+    println("====== Array J constructed  ======")
     for k = N-1:-1:1
+        println("Step k = ", k)
         V = interpolate(xgrid, reshape(slicedim(J, length(xgrid_length_tuple)+1, k+1), xgrid_length_tuple), Gridded(Linear()))            
-        for i in CartesianRange(xgrid_length_tuple)
-            x_i = index_into(xgrid, i)
-            J[i.I..., k] = step(k, x_i, ugrid, theta0, V, f, phi)
+        @sync @parallel for i=1:xgrid_length_total
+            x_i = index_into(xgrid, xgrid_length_tuple, i)
+            J[ind2sub(xgrid_length_tuple, i)..., k] = step(k, x_i, ugrid, theta0, V, f, phi)
         end
     end            
     return J
@@ -41,10 +56,10 @@ end
 # compute optimal input at x 
 function step_u(k::Int64, x::Array{Float64, 1}, ugrid::Tuple, theta::Array{Float64, 1}, V, f::Function, g::Function)
     J_star = -Inf
-    ugrid_length_tuple = ([length(l) for l in ugrid]...)
+    ugrid_length_tuple, ugrid_length_total = grid_size(ugrid)
     u_star = zeros(length(ugrid_length_tuple))
-    for i in CartesianRange(ugrid_length_tuple)
-        u = index_into(ugrid, i)
+    for i=1:ugrid_length_total
+        u = index_into(ugrid, ugrid_length_tuple, i)
         J_u = g(x, u, theta) + V[f(k, x, u, theta)...]
         if J_u > J_star
             J_star = J_u

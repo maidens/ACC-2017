@@ -65,10 +65,10 @@ function dp_loop(f::Function, phi::Function, ugrid::Tuple, xgrid::Tuple,
     return J
 end
 
-# compute optimal input at x 
 function step_u(k::Int64, x::Array{Float64, 1}, ugrid::Tuple, theta::Array{Float64, 1}, V, f::Function, g::Function)
     J_star = -Inf
-    x_in = [x[1]; 0; x[2:end]]
+    # x_in = [x[1]; 0; x[2:end]]
+    x_in = x
     ugrid_length_tuple, ugrid_length_total = grid_size(ugrid)
     u_star = zeros(length(ugrid_length_tuple))
     for i=1:ugrid_length_total
@@ -88,7 +88,6 @@ function step_u(k::Int64, x::Array{Float64, 1}, ugrid::Tuple, theta::Array{Float
     return u_star
 end
 
-# rollout a trajectory starting at x0 using the value function J 
 function dp_rollout(J, x0::Array{Float64, 1}, f::Function, phi::Function, 
                     ugrid::Tuple, xgrid::Tuple, theta0::Array{Float64, 1}, N::Int64)
     x = zeros((length(x0), N))
@@ -98,16 +97,11 @@ function dp_rollout(J, x0::Array{Float64, 1}, f::Function, phi::Function,
     for k=1:N-1
         V = interpolate(xgrid, reshape(slicedim(J, length(xgrid_length_tuple)+1, k), xgrid_length_tuple), Gridded(Linear()))
         u[:, k] = step_u(k, x[:, k], ugrid, theta0, V, f, phi)
-        x_in = [x[1]; 0; x[2:end]]
-        x_plus = f(k, x_in, u[:, k], theta0)
-        alpha = atan2(x_plus[2], x_plus[1])
-        r = norm(x_plus[1:2])
-        z = x_plus[3]
-        nabla_x = x_plus[4:6]
-        x_plus_reduced = [r; z; Rz(-alpha)*nabla_x]
-        x[:, k+1] = x_plus_reduced
+        x[:, k+1] = f(k, x[:, k] , u[:, k], theta0)
     end
     return x, u
 end
+
+
 
 end # Module
